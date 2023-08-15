@@ -1,0 +1,21 @@
+[package]
+edition = "2021"
+name = "lru-cache"
+rust-version = "1.65"
+version = "0.1.3"
+
+categories = ["algorithms", "caching"]
+description = "A cache that holds a limited number of key-value pairs."
+keywords = ["lru"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/drmingdrmer/lru-cache/"
+
+[dependencies]
+linked-hash-map = "0.5"
+
+[dev-dependencies]
+
+
+
+
