@@ -69,13 +69,14 @@ use linked_hash_map::LinkedHashMap;
 pub trait Meter<K, V> {
     /// The type used to store measurements.
     type Measure: Default + Copy;
+
     /// Calculate the size of `key` and `value`.
     fn measure<Q: ?Sized>(&self, key: &Q, value: &V) -> Self::Measure
     where
         K: Borrow<Q>;
 }
 
-/// Size limit based on a simple count of cache items.
+/// Size limit simply based on the count of cache items.
 pub struct Count;
 
 impl<K, V> Meter<K, V> for Count {
@@ -92,66 +93,50 @@ impl<K, V> Meter<K, V> for Count {
 
 /// A trait to allow the default `Count` measurement to not store an
 /// extraneous counter.
-pub trait CountableMeter<K, V>: Meter<K, V> {
-    /// Add `amount` to `current` and return the sum.
-    fn add(&self, current: Self::Measure, amount: Self::Measure) -> Self::Measure;
-    /// Subtract `amount` from `current` and return the difference.
-    fn sub(&self, current: Self::Measure, amount: Self::Measure) -> Self::Measure;
-    /// Return `current` as a `usize` if possible, otherwise return `None`.
-    ///
-    /// If this method returns `None` the cache will use the number of cache
-    /// entries as its size.
-    fn size(&self, current: Self::Measure) -> Option<u64>;
-}
+pub trait CountableMeter<K, V>: Meter<K, V> + Countable<K, V, Self::Measure> {}
 
 /// `Count` is all no-ops, the number of entries in the map is the size.
-impl<K, V, T: Meter<K, V>> CountableMeter<K, V> for T
+impl<K, V, T> CountableMeter<K, V> for T
 where
-    T: CountableMeterWithMeasure<K, V, <T as Meter<K, V>>::Measure>,
+    T: Meter<K, V>,
+    T: Countable<K, V, <T as Meter<K, V>>::Measure>,
 {
-    fn add(&self, current: Self::Measure, amount: Self::Measure) -> Self::Measure {
-        CountableMeterWithMeasure::meter_add(self, current, amount)
-    }
-    fn sub(&self, current: Self::Measure, amount: Self::Measure) -> Self::Measure {
-        CountableMeterWithMeasure::meter_sub(self, current, amount)
-    }
-    fn size(&self, current: Self::Measure) -> Option<u64> {
-        CountableMeterWithMeasure::meter_size(self, current)
-    }
 }
 
-pub trait CountableMeterWithMeasure<K, V, M> {
+pub trait Countable<K, V, M> {
     /// Add `amount` to `current` and return the sum.
-    fn meter_add(&self, current: M, amount: M) -> M;
+    fn add(&self, current: M, amount: M) -> M;
+
     /// Subtract `amount` from `current` and return the difference.
-    fn meter_sub(&self, current: M, amount: M) -> M;
+    fn sub(&self, current: M, amount: M) -> M;
+
     /// Return `current` as a `usize` if possible, otherwise return `None`.
     ///
     /// If this method returns `None` the cache will use the number of cache
     /// entries as its size.
-    fn meter_size(&self, current: M) -> Option<u64>;
+    fn size(&self, current: M) -> Option<u64>;
 }
 
 /// For any other `Meter` with `Measure=usize`, just do the simple math.
-impl<K, V, T> CountableMeterWithMeasure<K, V, usize> for T
+impl<K, V, T> Countable<K, V, usize> for T
 where
     T: Meter<K, V>,
 {
-    fn meter_add(&self, current: usize, amount: usize) -> usize {
+    fn add(&self, current: usize, amount: usize) -> usize {
         current + amount
     }
-    fn meter_sub(&self, current: usize, amount: usize) -> usize {
+    fn sub(&self, current: usize, amount: usize) -> usize {
         current - amount
     }
-    fn meter_size(&self, current: usize) -> Option<u64> {
+    fn size(&self, current: usize) -> Option<u64> {
         Some(current as u64)
     }
 }
 
-impl<K, V> CountableMeterWithMeasure<K, V, ()> for Count {
-    fn meter_add(&self, _current: (), _amount: ()) {}
-    fn meter_sub(&self, _current: (), _amount: ()) {}
-    fn meter_size(&self, _current: ()) -> Option<u64> {
+impl<K, V> Countable<K, V, ()> for Count {
+    fn add(&self, _current: (), _amount: ()) {}
+    fn sub(&self, _current: (), _amount: ()) {}
+    fn size(&self, _current: ()) -> Option<u64> {
         None
     }
 }
