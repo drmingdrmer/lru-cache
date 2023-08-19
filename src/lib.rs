@@ -15,9 +15,9 @@
 //!
 //! # Examples
 //!
-//! ```rust,ignore
-//! use lru_cache::LruCache;
-//!
+//! ```rust
+//! # use lru_cache::LruCache;
+//! #
 //! let mut cache = LruCache::new(2);
 //!
 //! cache.insert(1, 10);
@@ -57,26 +57,16 @@ use std::hash::Hash;
 
 use linked_hash_map::LinkedHashMap;
 
+mod meter;
+
+pub use crate::meter::Countable;
+pub use crate::meter::CountableMeter;
+pub use crate::meter::Meter;
+
 // FIXME(conventions): implement indexing?
 
-/// A trait for measuring the size of a cache entry.
-///
-/// If you implement this trait, you should use `usize` as the `Measure` type,
-/// otherwise you will also have to implement
-/// [`CountableMeter`][countablemeter].
-///
-/// [countablemeter]: trait.Meter.html
-pub trait Meter<K, V> {
-    /// The type used to store measurements.
-    type Measure: Default + Copy;
-
-    /// Calculate the size of `key` and `value`.
-    fn measure<Q: ?Sized>(&self, key: &Q, value: &V) -> Self::Measure
-    where
-        K: Borrow<Q>;
-}
-
-/// Size limit simply based on the count of cache items.
+/// Dummy meter, it does nothing but just rely on the LruCache internal map size to throttle the
+/// cache size.
 pub struct Count;
 
 impl<K, V> Meter<K, V> for Count {
@@ -88,48 +78,6 @@ impl<K, V> Meter<K, V> for Count {
     where
         K: Borrow<Q>,
     {
-    }
-}
-
-/// A trait to allow the default `Count` measurement to not store an
-/// extraneous counter.
-pub trait CountableMeter<K, V>: Meter<K, V> + Countable<K, V, Self::Measure> {}
-
-/// `Count` is all no-ops, the number of entries in the map is the size.
-impl<K, V, T> CountableMeter<K, V> for T
-where
-    T: Meter<K, V>,
-    T: Countable<K, V, <T as Meter<K, V>>::Measure>,
-{
-}
-
-pub trait Countable<K, V, M> {
-    /// Add `amount` to `current` and return the sum.
-    fn add(&self, current: M, amount: M) -> M;
-
-    /// Subtract `amount` from `current` and return the difference.
-    fn sub(&self, current: M, amount: M) -> M;
-
-    /// Return `current` as a `usize` if possible, otherwise return `None`.
-    ///
-    /// If this method returns `None` the cache will use the number of cache
-    /// entries as its size.
-    fn size(&self, current: M) -> Option<u64>;
-}
-
-/// For any other `Meter` with `Measure=usize`, just do the simple math.
-impl<K, V, T> Countable<K, V, usize> for T
-where
-    T: Meter<K, V>,
-{
-    fn add(&self, current: usize, amount: usize) -> usize {
-        current + amount
-    }
-    fn sub(&self, current: usize, amount: usize) -> usize {
-        current - amount
-    }
-    fn size(&self, current: usize) -> Option<u64> {
-        Some(current as u64)
     }
 }
 
@@ -184,8 +132,8 @@ impl<K: Eq + Hash, V> LruCache<K, V> {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// use lru_cache::LruCache;
+    /// ```rust
+    /// # use lru_cache::LruCache;
     /// let mut cache: LruCache<i32, &str> = LruCache::new(10);
     /// ```
     pub fn new(capacity: u64) -> Self {
@@ -202,16 +150,14 @@ impl<K: Eq + Hash, V, M: CountableMeter<K, V>> LruCache<K, V, RandomState, M> {
     /// Creates an empty cache that can hold at most `capacity` as measured by
     /// `meter`.
     ///
-    /// You can implement the [`Meter`][meter] trait to allow custom metrics.
-    ///
-    /// [meter]: trait.Meter.html
+    /// You can implement the [`Meter`] trait to allow custom metrics.
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// use lru_cache::{LruCache, Meter};
-    /// use std::borrow::Borrow;
-    ///
+    /// ```rust
+    /// # use lru_cache::{LruCache, Meter};
+    /// # use std::borrow::Borrow;
+    /// #
     /// /// Measure Vec items by their length
     /// struct VecLen;
     ///
@@ -263,9 +209,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> LruCache<K, V, S, Count> {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// use lru_cache::LruCache;
-    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
     /// let mut cache = LruCache::new(2);
     ///
     /// cache.insert(1, "a");
@@ -293,9 +239,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> LruCache<K, V, S, Count> {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// use lru_cache::LruCache;
-    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
     /// let mut cache = LruCache::new(2);
     ///
     /// cache.insert(1, 10);
@@ -337,8 +283,8 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: CountableMeter<K, V>> LruCache<K, V, S,
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// use lru_cache::LruCache;
+    /// ```rust
+    /// # use lru_cache::LruCache;
     /// let mut cache: LruCache<i32, &str> = LruCache::new(2);
     /// assert_eq!(cache.capacity(), 2);
     /// ```
@@ -350,9 +296,9 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: CountableMeter<K, V>> LruCache<K, V, S,
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// use lru_cache::LruCache;
-    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
     /// let mut cache = LruCache::new(1);
     ///
     /// cache.insert(1, "a");
@@ -379,9 +325,9 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: CountableMeter<K, V>> LruCache<K, V, S,
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// use lru_cache::LruCache;
-    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
     /// let mut cache = LruCache::new(2);
     ///
     /// cache.insert(1, "a");
@@ -409,9 +355,9 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: CountableMeter<K, V>> LruCache<K, V, S,
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// use lru_cache::LruCache;
-    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
     /// let mut cache = LruCache::new(2);
     ///
     /// cache.insert(2, "a");
@@ -441,9 +387,9 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: CountableMeter<K, V>> LruCache<K, V, S,
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// use lru_cache::LruCache;
-    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
     /// let mut cache = LruCache::new(2);
     ///
     /// cache.insert(1, "a");
@@ -479,9 +425,9 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: CountableMeter<K, V>> LruCache<K, V, S,
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// use lru_cache::LruCache;
-    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
     /// let mut cache = LruCache::new(2);
     ///
     /// cache.insert(1, "a");
@@ -532,9 +478,9 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: CountableMeter<K, V>> LruCache<K, V, S,
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// use lru_cache::LruCache;
-    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
     /// let mut cache = LruCache::new(2);
     ///
     /// cache.insert(1, 10);
@@ -607,9 +553,9 @@ impl<'a, K: Eq + Hash, V, S: BuildHasher, M: CountableMeter<K, V>> IntoIterator
 ///
 /// # Examples
 ///
-/// ```rust,ignore
-/// use lru_cache::LruCache;
-///
+/// ```rust
+/// # use lru_cache::LruCache;
+/// #
 /// let mut cache = LruCache::new(2);
 ///
 /// cache.insert(1, 10);
@@ -722,7 +668,7 @@ mod tests {
     use std::borrow::Borrow;
 
     use super::LruCache;
-    use super::Meter;
+    use crate::meter::Meter;
 
     #[test]
     fn test_put_and_get() {
