@@ -38,13 +38,10 @@
 //! ```
 //!
 //! The cache can also be limited by an arbitrary metric calculated from its
-//! key-value pairs, see [`LruCache::with_meter`][with_meter] for more
+//! key-value pairs, see [`LruCache::with_meter`] for more
 //! information. If the `heapsize` feature is enabled, this crate provides one
 //! such alternate metric&mdash;`HeapSize`. Custom metrics can be written by
-//! implementing the [`Meter`][meter] trait.
-//!
-//! [with_meter]: struct.LruCache.html#method.with_meter
-//! [meter]: trait.Meter.html
+//! implementing the [`Meter`] trait.
 
 #[cfg(feature = "heapsize")]
 extern crate heapsize;
@@ -55,27 +52,15 @@ use std::fmt;
 use std::hash::BuildHasher;
 use std::hash::Hash;
 
+use cache_iter::IntoIter;
+use cache_iter::Iter;
+use cache_iter::IterMut;
 use linked_hash_map::LinkedHashMap;
 
-mod meter;
-
-pub use crate::meter::Meter;
+mod cache_iter;
+pub mod meter;
 
 // FIXME(conventions): implement indexing?
-
-/// A Meter that measures cache size by counting object number.
-pub struct Count;
-
-impl<K, V> Meter<K, V> for Count {
-    type Measure = usize;
-
-    fn measure<Q: ?Sized>(&self, _: &Q, _: &V) -> Self::Measure
-    where
-        K: Borrow<Q>,
-    {
-        1
-    }
-}
 
 #[cfg(feature = "heapsize")]
 mod heap_meter {
@@ -104,6 +89,9 @@ mod heap_meter {
 
 #[cfg(feature = "heapsize")]
 pub use heap_meter::*;
+use meter::Count;
+
+use crate::meter::Meter;
 
 /// An LRU cache.
 #[derive(Clone)]
@@ -148,7 +136,7 @@ impl<K: Eq + Hash, V, M: Meter<K, V>> LruCache<K, V, RandomState, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::{LruCache, Meter};
+    /// # use lru_cache::{LruCache, meter::Meter};
     /// # use std::borrow::Borrow;
     /// #
     /// /// Measure Vec items by their length
@@ -595,121 +583,6 @@ impl<'a, K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> IntoIterator
     type IntoIter = IterMut<'a, K, V>;
     fn into_iter(self) -> IterMut<'a, K, V> {
         self.internal_iter_mut()
-    }
-}
-
-/// An iterator over a cache's key-value pairs in least- to most-recently-used
-/// order.
-///
-/// # Examples
-///
-/// ```rust
-/// # use lru_cache::LruCache;
-/// #
-/// let mut cache = LruCache::new(2);
-///
-/// cache.insert(1, 10);
-/// cache.insert(2, 20);
-/// cache.insert(3, 30);
-///
-/// let mut n = 2;
-///
-/// for (k, v) in cache {
-///     assert_eq!(k, n);
-///     assert_eq!(v, n * 10);
-///     n += 1;
-/// }
-///
-/// assert_eq!(n, 4);
-/// ```
-#[derive(Clone)]
-pub struct IntoIter<K, V>(linked_hash_map::IntoIter<K, V>);
-
-impl<K, V> Iterator for IntoIter<K, V> {
-    type Item = (K, V);
-
-    fn next(&mut self) -> Option<(K, V)> {
-        self.0.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
-    }
-}
-
-impl<K, V> DoubleEndedIterator for IntoIter<K, V> {
-    fn next_back(&mut self) -> Option<(K, V)> {
-        self.0.next_back()
-    }
-}
-
-impl<K, V> ExactSizeIterator for IntoIter<K, V> {
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
-/// An iterator over a cache's key-value pairs in least- to most-recently-used
-/// order.
-///
-/// Accessing a cache through the iterator does _not_ affect the cache's LRU
-/// state.
-pub struct Iter<'a, K, V>(linked_hash_map::Iter<'a, K, V>);
-
-impl<'a, K, V> Clone for Iter<'a, K, V> {
-    fn clone(&self) -> Iter<'a, K, V> {
-        Iter(self.0.clone())
-    }
-}
-
-impl<'a, K, V> Iterator for Iter<'a, K, V> {
-    type Item = (&'a K, &'a V);
-    fn next(&mut self) -> Option<(&'a K, &'a V)> {
-        self.0.next()
-    }
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
-    }
-}
-
-impl<'a, K, V> DoubleEndedIterator for Iter<'a, K, V> {
-    fn next_back(&mut self) -> Option<(&'a K, &'a V)> {
-        self.0.next_back()
-    }
-}
-
-impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> {
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
-/// An iterator over a cache's key-value pairs in least- to most-recently-used
-/// order with mutable references to the values.
-///
-/// Accessing a cache through the iterator does _not_ affect the cache's LRU
-/// state.
-pub struct IterMut<'a, K, V>(linked_hash_map::IterMut<'a, K, V>);
-
-impl<'a, K, V> Iterator for IterMut<'a, K, V> {
-    type Item = (&'a K, &'a mut V);
-    fn next(&mut self) -> Option<(&'a K, &'a mut V)> {
-        self.0.next()
-    }
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
-    }
-}
-
-impl<'a, K, V> DoubleEndedIterator for IterMut<'a, K, V> {
-    fn next_back(&mut self) -> Option<(&'a K, &'a mut V)> {
-        self.0.next_back()
-    }
-}
-
-impl<'a, K, V> ExactSizeIterator for IterMut<'a, K, V> {
-    fn len(&self) -> usize {
-        self.0.len()
     }
 }
 

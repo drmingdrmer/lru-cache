@@ -22,3 +22,17 @@ pub trait Meter<K, V> {
     where
         K: Borrow<Q>;
 }
+
+/// A Meter that measures cache size by counting object number.
+pub struct Count;
+
+impl<K, V> Meter<K, V> for Count {
+    type Measure = usize;
+
+    fn measure<Q: ?Sized>(&self, _: &Q, _: &V) -> Self::Measure
+    where
+        K: Borrow<Q>,
+    {
+        1
+    }
+}
