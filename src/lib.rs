@@ -129,7 +129,7 @@ impl<K: Eq + Hash, V> LruCache<K, V> {
 
 impl<K: Eq + Hash, V, M: Meter<K, V>> LruCache<K, V, RandomState, M> {
     /// Creates an empty cache that can hold at most `capacity` as measured by
-    /// `meter`.
+    /// [`Meter`].
     ///
     /// You can implement the [`Meter`] trait to allow custom metrics.
     ///
@@ -258,7 +258,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
 
 impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// Creates an empty cache that can hold at most `capacity` as measured by
-    /// `meter` with the given hash builder.
+    /// [`Meter`] with the given hash builder.
     pub fn with_meter_and_hasher(
         max_items: usize,
         capacity: M::Measure,
@@ -275,7 +275,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     }
 
     /// Returns the maximum size of the key-value pairs the cache can hold, as
-    /// measured by the `Meter` used by the cache.
+    /// measured by the [`Meter`] used by the cache.
     ///
     /// # Examples
     ///
@@ -427,7 +427,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     }
 
     /// Sets the size of the key-value pairs the cache can hold, as measured by
-    /// the `Meter` used by the cache.
+    /// the [`Meter`] used by the cache.
     ///
     /// Removes least-recently-used key-value pairs if necessary.
     ///
