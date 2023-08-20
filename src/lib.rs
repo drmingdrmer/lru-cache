@@ -38,13 +38,8 @@
 //! ```
 //!
 //! The cache can also be limited by an arbitrary metric calculated from its
-//! key-value pairs, see [`LruCache::with_meter`] for more
-//! information. If the `heapsize` feature is enabled, this crate provides one
-//! such alternate metric&mdash;`HeapSize`. Custom metrics can be written by
-//! implementing the [`Meter`] trait.
-
-#[cfg(feature = "heapsize")]
-extern crate heapsize;
+//! key-value pairs, see [`LruCache::with_meter`] for more information. Custom metrics can be
+//! written by implementing the [`Meter`] trait.
 
 use std::borrow::Borrow;
 use std::collections::hash_map::RandomState;
@@ -52,46 +47,16 @@ use std::fmt;
 use std::hash::BuildHasher;
 use std::hash::Hash;
 
-use cache_iter::IntoIter;
-use cache_iter::Iter;
-use cache_iter::IterMut;
 use linked_hash_map::LinkedHashMap;
+
+use crate::cache_iter::IntoIter;
+use crate::cache_iter::Iter;
+use crate::cache_iter::IterMut;
+use crate::meter::Count;
+use crate::meter::Meter;
 
 mod cache_iter;
 pub mod meter;
-
-// FIXME(conventions): implement indexing?
-
-#[cfg(feature = "heapsize")]
-mod heap_meter {
-    use std::borrow::Borrow;
-
-    use heapsize::HeapSizeOf;
-
-    /// Size limit based on the heap size of each cache item.
-    ///
-    /// Requires cache items that implement [`HeapSizeOf`][1].
-    ///
-    /// [1]: https://doc.servo.org/heapsize/trait.HeapSizeOf.html
-    pub struct HeapSize;
-
-    impl<K, V: HeapSizeOf> super::Meter<K, V> for HeapSize {
-        type Measure = usize;
-
-        fn measure<Q: ?Sized>(&self, _: &Q, item: &V) -> usize
-        where
-            K: Borrow<Q>,
-        {
-            item.heap_size_of_children() + ::std::mem::size_of::<V>()
-        }
-    }
-}
-
-#[cfg(feature = "heapsize")]
-pub use heap_meter::*;
-use meter::Count;
-
-use crate::meter::Meter;
 
 /// An LRU cache.
 #[derive(Clone)]
@@ -809,20 +774,5 @@ mod tests {
         assert_eq!(cache.len(), 1);
         assert!(!cache.contains_key("foo1"));
         assert!(cache.contains_key("foo2"));
-    }
-
-    #[cfg(feature = "heapsize")]
-    #[test]
-    fn test_heapsize_cache() {
-        use super::HeapSize;
-
-        let mut cache = LruCache::<&str, (u8, u8, u8), _, _>::with_meter(8, HeapSize);
-        cache.insert("foo1", (1, 2, 3));
-        cache.insert("foo2", (4, 5, 6));
-        cache.insert("foo3", (7, 8, 9));
-        assert!(!cache.contains_key("foo1"));
-        cache.insert("foo2", (10, 11, 12));
-        cache.insert("foo4", (13, 14, 15));
-        assert!(!cache.contains_key("foo3"));
     }
 }
