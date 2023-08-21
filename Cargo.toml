@@ -12,7 +12,8 @@ readme = "README.md"
 repository = "https://github.com/drmingdrmer/lru-cache/"
 
 [dependencies]
-linked-hash-map = "0.5"
+hashbrown = { version = "0.14.0"}
+hashlink = { git = "https://github.com/drmingdrmer/hashlink", branch = "master" }
 
 [dev-dependencies]
 

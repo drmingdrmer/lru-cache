@@ -1,3 +1,5 @@
+use hashlink::linked_hash_map;
+
 /// An iterator over a cache's key-value pairs in least- to most-recently-used
 /// order.
 ///
@@ -22,7 +24,6 @@
 ///
 /// assert_eq!(n, 4);
 /// ```
-#[derive(Clone)]
 pub struct IntoIter<K, V>(pub(crate) linked_hash_map::IntoIter<K, V>);
 
 impl<K, V> Iterator for IntoIter<K, V> {

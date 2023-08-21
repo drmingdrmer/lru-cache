@@ -42,11 +42,12 @@
 //! written by implementing the [`Meter`] trait.
 
 use std::borrow::Borrow;
-use std::collections::hash_map::RandomState;
 use std::fmt;
 use std::hash::BuildHasher;
 use std::hash::Hash;
 
+use hashbrown::hash_map::DefaultHashBuilder;
+use hashlink::linked_hash_map;
 use linked_hash_map::LinkedHashMap;
 
 use crate::cache_iter::IntoIter;
@@ -60,7 +61,7 @@ pub mod meter;
 
 /// An LRU cache.
 #[derive(Clone)]
-pub struct LruCache<K: Eq + Hash, V, S: BuildHasher = RandomState, M: Meter<K, V> = Count> {
+pub struct LruCache<K: Eq + Hash, V, S: BuildHasher = DefaultHashBuilder, M: Meter<K, V> = Count> {
     map: LinkedHashMap<K, V, S>,
 
     /// The maximum number of items this cache can hold.
@@ -92,7 +93,7 @@ impl<K: Eq + Hash, V> LruCache<K, V> {
     }
 }
 
-impl<K: Eq + Hash, V, M: Meter<K, V>> LruCache<K, V, RandomState, M> {
+impl<K: Eq + Hash, V, M: Meter<K, V>> LruCache<K, V, DefaultHashBuilder, M> {
     /// Creates an empty cache that can hold at most `capacity` as measured by
     /// [`Meter`].
     ///
@@ -130,7 +131,7 @@ impl<K: Eq + Hash, V, M: Meter<K, V>> LruCache<K, V, RandomState, M> {
         max_items: usize,
         capacity: M::Measure,
         meter: M,
-    ) -> LruCache<K, V, RandomState, M> {
+    ) -> LruCache<K, V, DefaultHashBuilder, M> {
         LruCache {
             map: LinkedHashMap::new(),
             max_items,
@@ -156,72 +157,6 @@ impl<K: Eq + Hash, V, S: BuildHasher> LruCache<K, V, S, Count> {
 }
 
 impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
-    /// Returns a mutable reference to the value corresponding to the given key
-    /// in the cache, if any.
-    ///
-    /// Note that this method is not available for cache objects using `Meter`
-    /// implementations other than `Count`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use lru_cache::LruCache;
-    /// #
-    /// let mut cache = LruCache::new(2);
-    ///
-    /// cache.insert(1, "a");
-    /// cache.insert(2, "b");
-    /// cache.insert(2, "c");
-    /// cache.insert(3, "d");
-    ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "c"));
-    /// ```
-    pub fn get_mut<Q: ?Sized>(&mut self, k: &Q) -> Option<&mut V>
-    where
-        K: Borrow<Q>,
-        Q: Hash + Eq,
-    {
-        self.map.get_refresh(k)
-    }
-
-    /// Returns an iterator over the cache's key-value pairs in least- to
-    /// most-recently-used order, with mutable references to the values.
-    ///
-    /// Accessing the cache through the iterator does _not_ affect the cache's
-    /// LRU state. Note that this method is not available for cache objects
-    /// using `Meter` implementations. other than `Count`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use lru_cache::LruCache;
-    /// #
-    /// let mut cache = LruCache::new(2);
-    ///
-    /// cache.insert(1, 10);
-    /// cache.insert(2, 20);
-    /// cache.insert(3, 30);
-    ///
-    /// let mut n = 2;
-    ///
-    /// for (k, v) in cache.iter_mut() {
-    ///     assert_eq!(*k, n);
-    ///     assert_eq!(*v, n * 10);
-    ///     *v *= 10;
-    ///     n += 1;
-    /// }
-    ///
-    /// assert_eq!(n, 4);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut 200));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut 300));
-    /// ```
-    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
-        self.internal_iter_mut()
-    }
-}
-
-impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// Creates an empty cache that can hold at most `capacity` as measured by
     /// [`Meter`] with the given hash builder.
     pub fn with_meter_and_hasher(
@@ -239,6 +174,66 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
         }
     }
 
+    /// Returns `true` if the cache contains no key-value pairs.
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Returns the number of key-value pairs in the cache.
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn max_items(&self) -> usize {
+        self.max_items
+    }
+
+    /// Sets the max number of items the cache can hold.
+    ///
+    /// Removes least-recently-used key-value pairs if necessary.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
+    /// let mut cache = LruCache::new(2);
+    /// cache.set_capacity(100);
+    ///
+    /// cache.insert(1, "a");
+    /// cache.insert(2, "b");
+    /// cache.insert(3, "c");
+    ///
+    /// assert_eq!(cache.get_mut(&1), None);
+    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
+    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    ///
+    /// cache.set_max_items(3);
+    /// cache.insert(1, "a");
+    /// cache.insert(2, "b");
+    ///
+    /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
+    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
+    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    ///
+    /// cache.set_max_items(1);
+    ///
+    /// assert_eq!(cache.get_mut(&1), None);
+    /// assert_eq!(cache.get_mut(&2), None);
+    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    /// ```
+    pub fn set_max_items(&mut self, max_items: usize) {
+        while self.len() > max_items {
+            self.remove_lru();
+        }
+        self.max_items = max_items;
+    }
+
+    /// Returns the size in `Meter::Measure` of all the key-value pairs in the cache.
+    pub fn size(&self) -> M::Measure {
+        self.current_measure
+    }
+
     /// Returns the maximum size of the key-value pairs the cache can hold, as
     /// measured by the [`Meter`] used by the cache.
     ///
@@ -253,8 +248,46 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
         self.max_capacity
     }
 
-    pub fn max_items(&self) -> usize {
-        self.max_items
+    /// Sets the size of the key-value pairs the cache can hold, as measured by
+    /// the [`Meter`] used by the cache.
+    ///
+    /// Removes least-recently-used key-value pairs if necessary.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
+    /// let mut cache = LruCache::new(2);
+    /// cache.set_max_items(100);
+    ///
+    /// cache.insert(1, "a");
+    /// cache.insert(2, "b");
+    /// cache.insert(3, "c");
+    ///
+    /// assert_eq!(cache.get_mut(&1), None);
+    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
+    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    ///
+    /// cache.set_capacity(3);
+    /// cache.insert(1, "a");
+    /// cache.insert(2, "b");
+    ///
+    /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
+    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
+    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    ///
+    /// cache.set_capacity(1);
+    ///
+    /// assert_eq!(cache.get_mut(&1), None);
+    /// assert_eq!(cache.get_mut(&2), None);
+    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    /// ```
+    pub fn set_capacity(&mut self, capacity: M::Measure) {
+        while self.size() > capacity {
+            self.remove_lru();
+        }
+        self.max_capacity = capacity;
     }
 
     /// Checks if the map contains the given key.
@@ -277,16 +310,8 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
         self.map.contains_key(key)
     }
 
-    pub fn get<Q: ?Sized>(&mut self, k: &Q) -> Option<&V>
-    where
-        K: Borrow<Q>,
-        Q: Hash + Eq,
-    {
-        self.map.get_refresh(k).map(|v| v as &V)
-    }
-
-    /// Inserts a key-value pair into the cache. If the key already existed, the
-    /// old value is returned.
+    /// Returns a reference to the value corresponding to the given key
+    /// in the cache, if any. And put the accessed item to the back.
     ///
     /// # Examples
     ///
@@ -297,8 +322,71 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     ///
     /// cache.insert(1, "a");
     /// cache.insert(2, "b");
-    /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
+    /// cache.insert(2, "c");
+    /// cache.insert(3, "d");
+    ///
+    /// assert_eq!(cache.get(&1), None);
+    /// assert_eq!(cache.get(&2), Some(&"c"));
+    /// ```
+    pub fn get<Q: ?Sized>(&mut self, k: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
+        self.get_mut(k).map(|v| &*v)
+    }
+
+    /// Returns a mutable reference to the value corresponding to the given key
+    /// in the cache, if any.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
+    /// let mut cache = LruCache::new(2);
+    ///
+    /// cache.insert(1, "a");
+    /// cache.insert(2, "b");
+    /// cache.insert(2, "c");
+    /// cache.insert(3, "d");
+    ///
+    /// assert_eq!(cache.get_mut(&1), None);
+    /// assert_eq!(cache.get_mut(&2), Some(&mut "c"));
+    /// ```
+    // TODO: validate against `Meter` when the updated value is given back
+    pub fn get_mut<Q: ?Sized>(&mut self, k: &Q) -> Option<&mut V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
+        match self.map.raw_entry_mut().from_key(k) {
+            linked_hash_map::RawEntryMut::Occupied(mut occupied) => {
+                occupied.to_back();
+                Some(occupied.into_mut())
+            }
+            linked_hash_map::RawEntryMut::Vacant(_) => None,
+        }
+    }
+
+    /// Inserts a key-value pair into the cache and put it to the back. If the key already existed,
+    /// the old value is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
+    /// let mut cache = LruCache::new(2);
+    ///
+    /// cache.insert(1, "a");
+    /// cache.insert(2, "b");
+    /// assert_eq!(cache.get(&1), Some(&"a"));
+    /// assert_eq!(cache.get(&2), Some(&"b"));
+    ///
+    /// let evicted = cache.insert(2, "c");
+    /// assert_eq!(evicted, Some("b"));
+    /// assert_eq!(cache.get(&2), Some(&"c"));
     /// ```
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
         let new_size = self.meter.measure(&k, &v);
@@ -350,89 +438,6 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
         })
     }
 
-    /// Sets the max number of items the cache can hold.
-    ///
-    /// Removes least-recently-used key-value pairs if necessary.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use lru_cache::LruCache;
-    /// #
-    /// let mut cache = LruCache::new(2);
-    /// cache.set_capacity(100);
-    ///
-    /// cache.insert(1, "a");
-    /// cache.insert(2, "b");
-    /// cache.insert(3, "c");
-    ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
-    ///
-    /// cache.set_max_items(3);
-    /// cache.insert(1, "a");
-    /// cache.insert(2, "b");
-    ///
-    /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
-    ///
-    /// cache.set_max_items(1);
-    ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), None);
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
-    /// ```
-    pub fn set_max_items(&mut self, max_items: usize) {
-        while self.len() > max_items {
-            self.remove_lru();
-        }
-        self.max_items = max_items;
-    }
-
-    /// Sets the size of the key-value pairs the cache can hold, as measured by
-    /// the [`Meter`] used by the cache.
-    ///
-    /// Removes least-recently-used key-value pairs if necessary.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use lru_cache::LruCache;
-    /// #
-    /// let mut cache = LruCache::new(2);
-    /// cache.set_max_items(100);
-    ///
-    /// cache.insert(1, "a");
-    /// cache.insert(2, "b");
-    /// cache.insert(3, "c");
-    ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
-    ///
-    /// cache.set_capacity(3);
-    /// cache.insert(1, "a");
-    /// cache.insert(2, "b");
-    ///
-    /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
-    ///
-    /// cache.set_capacity(1);
-    ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), None);
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
-    /// ```
-    pub fn set_capacity(&mut self, capacity: M::Measure) {
-        while self.size() > capacity {
-            self.remove_lru();
-        }
-        self.max_capacity = capacity;
-    }
-
     /// Removes and returns the least recently used key-value pair as a tuple.
     ///
     /// # Examples
@@ -454,21 +459,6 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
             self.current_measure = self.current_measure - self.meter.measure(&k, &v);
             (k, v)
         })
-    }
-
-    /// Returns the number of key-value pairs in the cache.
-    pub fn len(&self) -> usize {
-        self.map.len()
-    }
-
-    /// Returns the size in `Meter::Measure` of all the key-value pairs in the cache.
-    pub fn size(&self) -> M::Measure {
-        self.current_measure
-    }
-
-    /// Returns `true` if the cache contains no key-value pairs.
-    pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
     }
 
     /// Removes all key-value pairs from the cache.
@@ -499,6 +489,42 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// ```
     pub fn iter(&self) -> Iter<'_, K, V> {
         Iter(self.map.iter())
+    }
+
+    /// Returns an iterator over the cache's key-value pairs in least- to
+    /// most-recently-used order, with mutable references to the values.
+    ///
+    /// Accessing the cache through the iterator does _not_ affect the cache's
+    /// LRU state. Note that this method is not available for cache objects
+    /// using `Meter` implementations. other than `Count`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
+    /// let mut cache = LruCache::new(2);
+    ///
+    /// cache.insert(1, 10);
+    /// cache.insert(2, 20);
+    /// cache.insert(3, 30);
+    ///
+    /// let mut n = 2;
+    ///
+    /// for (k, v) in cache.iter_mut() {
+    ///     assert_eq!(*k, n);
+    ///     assert_eq!(*v, n * 10);
+    ///     *v *= 10;
+    ///     n += 1;
+    /// }
+    ///
+    /// assert_eq!(n, 4);
+    /// assert_eq!(cache.get_mut(&2), Some(&mut 200));
+    /// assert_eq!(cache.get_mut(&3), Some(&mut 300));
+    /// ```
+    // TODO: validate against `Meter` when the updated value is given back
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
+        self.internal_iter_mut()
     }
 
     fn internal_iter_mut(&mut self) -> IterMut<'_, K, V> {
