@@ -48,6 +48,7 @@ use std::hash::Hash;
 
 use hashbrown::hash_map::DefaultHashBuilder;
 use hashlink::linked_hash_map;
+use hashlink::linked_hash_map::RawEntryMut;
 use linked_hash_map::LinkedHashMap;
 
 use crate::cache_iter::IntoIter;
@@ -55,9 +56,11 @@ use crate::cache_iter::Iter;
 use crate::cache_iter::IterMut;
 use crate::meter::Count;
 use crate::meter::Meter;
+use crate::peek_mut::PeekMut;
 
 mod cache_iter;
 pub mod meter;
+mod peek_mut;
 
 /// An LRU cache.
 #[derive(Clone)]
@@ -204,29 +207,27 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// cache.insert(2, "b");
     /// cache.insert(3, "c");
     ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    /// assert_eq!(cache.get(&1), None);
+    /// assert_eq!(cache.get(&2), Some(&"b"));
+    /// assert_eq!(cache.get(&3), Some(&"c"));
     ///
     /// cache.set_max_items(3);
     /// cache.insert(1, "a");
     /// cache.insert(2, "b");
     ///
-    /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    /// assert_eq!(cache.get(&1), Some(&"a"));
+    /// assert_eq!(cache.get(&2), Some(&"b"));
+    /// assert_eq!(cache.get(&3), Some(&"c"));
     ///
     /// cache.set_max_items(1);
     ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), None);
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    /// assert_eq!(cache.get(&1), None);
+    /// assert_eq!(cache.get(&2), None);
+    /// assert_eq!(cache.get(&3), Some(&"c"));
     /// ```
     pub fn set_max_items(&mut self, max_items: usize) {
-        while self.len() > max_items {
-            self.remove_lru();
-        }
         self.max_items = max_items;
+        self.evict_by_policy();
     }
 
     /// Returns the size in `Meter::Measure` of all the key-value pairs in the cache.
@@ -265,29 +266,27 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// cache.insert(2, "b");
     /// cache.insert(3, "c");
     ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    /// assert_eq!(cache.get(&1), None);
+    /// assert_eq!(cache.get(&2), Some(&"b"));
+    /// assert_eq!(cache.get(&3), Some(&"c"));
     ///
     /// cache.set_capacity(3);
     /// cache.insert(1, "a");
     /// cache.insert(2, "b");
     ///
-    /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    /// assert_eq!(cache.get(&1), Some(&"a"));
+    /// assert_eq!(cache.get(&2), Some(&"b"));
+    /// assert_eq!(cache.get(&3), Some(&"c"));
     ///
     /// cache.set_capacity(1);
     ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), None);
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    /// assert_eq!(cache.get(&1), None);
+    /// assert_eq!(cache.get(&2), None);
+    /// assert_eq!(cache.get(&3), Some(&"c"));
     /// ```
     pub fn set_capacity(&mut self, capacity: M::Measure) {
-        while self.size() > capacity {
-            self.remove_lru();
-        }
         self.max_capacity = capacity;
+        self.evict_by_policy();
     }
 
     /// Checks if the map contains the given key.
@@ -308,6 +307,76 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
         Q: Hash + Eq,
     {
         self.map.contains_key(key)
+    }
+
+    /// Returns a reference to the value corresponding to the given key
+    /// in the cache, if any. **Do not** put the accessed item to the back.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// #
+    /// let mut cache = LruCache::new(2);
+    ///
+    /// cache.insert(1, "a");
+    /// cache.insert(2, "b");
+    /// cache.insert(2, "c");
+    /// cache.insert(3, "d");
+    ///
+    /// assert_eq!(cache.peek(&1), None);
+    /// assert_eq!(cache.peek(&2), Some(&"c"));
+    /// ```
+    pub fn peek<Q: ?Sized>(&mut self, k: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
+        match self.map.raw_entry_mut().from_key(k) {
+            RawEntryMut::Occupied(occupied) => Some(occupied.into_mut()),
+            RawEntryMut::Vacant(_) => None,
+        }
+    }
+
+    /// Returns a mutable reference to the value corresponding to the given key
+    /// in the cache, if any. **Do** put the accessed item to the back.
+    ///
+    /// When the mutable reference is dropped, the cache will be evicted by policy if the `measure`
+    /// of the updated value changes.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use lru_cache::LruCache;
+    /// # use std::ops::DerefMut;
+    /// #
+    /// let mut cache = LruCache::new(2);
+    ///
+    /// cache.insert(1, "a");
+    /// cache.insert(2, "b");
+    ///
+    /// {
+    ///     let mut a = cache.peek_mut(&1).unwrap();
+    ///     *a = "c";
+    /// }
+    ///
+    /// assert_eq!(cache.get(&1).unwrap(), &"c");
+    /// assert_eq!(cache.get(&2).unwrap(), &"b");
+    /// ```
+    pub fn peek_mut<'a, Q: ?Sized>(&'a mut self, k: &'a Q) -> Option<PeekMut<'a, K, V, S, M>>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
+        let me = self as *mut Self;
+
+        match self.map.raw_entry_mut().from_key(k) {
+            RawEntryMut::Occupied(occupied) => {
+                let p = PeekMut::new(occupied, me);
+                Some(p)
+            }
+            RawEntryMut::Vacant(_) => None,
+        }
     }
 
     /// Returns a reference to the value corresponding to the given key
@@ -333,7 +402,13 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
-        self.get_mut(k).map(|v| &*v)
+        match self.map.raw_entry_mut().from_key(k) {
+            RawEntryMut::Occupied(mut occupied) => {
+                occupied.to_back();
+                Some(occupied.into_mut())
+            }
+            RawEntryMut::Vacant(_) => None,
+        }
     }
 
     /// Returns a mutable reference to the value corresponding to the given key
@@ -343,29 +418,35 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     ///
     /// ```rust
     /// # use lru_cache::LruCache;
+    /// # use std::ops::DerefMut;
     /// #
     /// let mut cache = LruCache::new(2);
     ///
     /// cache.insert(1, "a");
     /// cache.insert(2, "b");
-    /// cache.insert(2, "c");
-    /// cache.insert(3, "d");
     ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "c"));
+    /// {
+    ///     let mut a = cache.get_mut(&1).unwrap();
+    ///     *a = "c";
+    /// }
+    ///
+    /// assert_eq!(cache.get(&1).unwrap(), &"c");
+    /// assert_eq!(cache.get(&2).unwrap(), &"b");
     /// ```
-    // TODO: validate against `Meter` when the updated value is given back
-    pub fn get_mut<Q: ?Sized>(&mut self, k: &Q) -> Option<&mut V>
+    pub fn get_mut<'a, Q: ?Sized>(&'a mut self, k: &'a Q) -> Option<PeekMut<'a, K, V, S, M>>
     where
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
+        let me = self as *mut Self;
+
         match self.map.raw_entry_mut().from_key(k) {
-            linked_hash_map::RawEntryMut::Occupied(mut occupied) => {
+            RawEntryMut::Occupied(mut occupied) => {
                 occupied.to_back();
-                Some(occupied.into_mut())
+                let p = PeekMut::new(occupied, me);
+                Some(p)
             }
-            linked_hash_map::RawEntryMut::Vacant(_) => None,
+            RawEntryMut::Vacant(_) => None,
         }
     }
 
@@ -389,24 +470,24 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// assert_eq!(cache.get(&2), Some(&"c"));
     /// ```
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
-        let new_size = self.meter.measure(&k, &v);
-        self.current_measure = self.current_measure + new_size;
+        self.measure_add(&k, &v);
 
-        if let Some(old) = self.map.get(&k) {
-            self.current_measure = self.current_measure - self.meter.measure(&k, old);
-        }
+        let old_val = match self.map.raw_entry_mut().from_key(&k) {
+            RawEntryMut::Occupied(mut occupied) => {
+                occupied.to_back();
+                let old_val = occupied.replace_value(v);
 
-        let old_val = self.map.insert(k, v);
+                self.measure_remove(&k, &old_val);
+                Some(old_val)
+            }
+            RawEntryMut::Vacant(vacant) => {
+                vacant.insert(k, v);
+                None
+            }
+        };
 
-        // Evict items until we're below both count capacity and size capacity.
+        self.evict_by_policy();
 
-        while self.len() > self.max_items() {
-            self.remove_lru();
-        }
-
-        while self.size() > self.capacity() {
-            self.remove_lru();
-        }
         old_val
     }
 
@@ -433,7 +514,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
         Q: Hash + Eq,
     {
         self.map.remove(k).map(|v| {
-            self.current_measure = self.current_measure - self.meter.measure(k, &v);
+            self.measure_remove(k, &v);
             v
         })
     }
@@ -456,7 +537,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     #[inline]
     pub fn remove_lru(&mut self) -> Option<(K, V)> {
         self.map.pop_front().map(|(k, v)| {
-            self.current_measure = self.current_measure - self.meter.measure(&k, &v);
+            self.measure_remove(&k, &v);
             (k, v)
         })
     }
@@ -519,8 +600,8 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// }
     ///
     /// assert_eq!(n, 4);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut 200));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut 300));
+    /// assert_eq!(cache.get(&2), Some(&200));
+    /// assert_eq!(cache.get(&3), Some(&300));
     /// ```
     // TODO: validate against `Meter` when the updated value is given back
     pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
@@ -529,6 +610,32 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
 
     fn internal_iter_mut(&mut self) -> IterMut<'_, K, V> {
         IterMut(self.map.iter_mut())
+    }
+
+    /// Evict least recent used items until both count and size are below their limit.
+    pub(crate) fn evict_by_policy(&mut self) {
+        while self.len() > self.max_items() {
+            self.remove_lru();
+        }
+        while self.size() > self.capacity() {
+            self.remove_lru();
+        }
+    }
+
+    pub(crate) fn measure_add<Q: ?Sized>(&mut self, k: &Q, v: &V) -> M::Measure
+    where
+        K: Borrow<Q>,
+    {
+        self.current_measure = self.current_measure + self.meter.measure(k, v);
+        self.current_measure
+    }
+
+    pub(crate) fn measure_remove<Q: ?Sized>(&mut self, k: &Q, v: &V) -> M::Measure
+    where
+        K: Borrow<Q>,
+    {
+        self.current_measure = self.current_measure - self.meter.measure(k, v);
+        self.current_measure
     }
 }
 
@@ -580,6 +687,7 @@ impl<'a, K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> IntoIterator
 #[cfg(test)]
 mod tests {
     use std::borrow::Borrow;
+    use std::ops::Deref;
 
     use super::LruCache;
     use crate::meter::Meter;
@@ -589,8 +697,8 @@ mod tests {
         let mut cache = LruCache::new(2);
         cache.insert(1, 10);
         cache.insert(2, 20);
-        assert_eq!(cache.get_mut(&1), Some(&mut 10));
-        assert_eq!(cache.get_mut(&2), Some(&mut 20));
+        assert_eq!(cache.get_mut(&1).unwrap().deref(), &mut 10);
+        assert_eq!(cache.get_mut(&2).unwrap().deref(), &mut 20);
         assert_eq!(cache.len(), 2);
         assert_eq!(cache.size(), 2);
     }
@@ -600,7 +708,7 @@ mod tests {
         let mut cache = LruCache::new(1);
         cache.insert("1", 10);
         cache.insert("1", 19);
-        assert_eq!(cache.get_mut("1"), Some(&mut 19));
+        assert_eq!(cache.get_mut("1").unwrap().deref(), &mut 19);
         assert_eq!(cache.len(), 1);
     }
 
@@ -680,9 +788,99 @@ mod tests {
         cache.insert(7, 70);
         cache.insert(8, 80);
         assert!(cache.get_mut(&5).is_none());
-        assert_eq!(cache.get_mut(&6), Some(&mut 60));
-        assert_eq!(cache.get_mut(&7), Some(&mut 70));
-        assert_eq!(cache.get_mut(&8), Some(&mut 80));
+        assert_eq!(cache.get_mut(&6).unwrap().deref(), &mut 60);
+        assert_eq!(cache.get_mut(&7).unwrap().deref(), &mut 70);
+        assert_eq!(cache.get_mut(&8).unwrap().deref(), &mut 80);
+    }
+
+    #[test]
+    fn test_get_mut_debug() {
+        let mut cache = LruCache::new(2);
+        cache.insert(1, 10);
+        let a = cache.get_mut(&1).unwrap();
+
+        assert_eq!("PeekMut(10)", format!("{:?}", a))
+    }
+
+    #[test]
+    fn test_get_mut_evict() {
+        // When a value is updated via `get_mut()` and given back to the cache,
+        // the cache should evict items according to the meter changes.
+
+        let mut cache = LruCache::with_meter(2, 5, VecLen);
+        cache.insert(1, b"12".to_vec());
+        cache.insert(2, b"34".to_vec());
+
+        assert_eq!(cache.len(), 2);
+
+        {
+            let mut a = cache.get_mut(&1).unwrap();
+            *a = b"1234".to_vec();
+        }
+
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.get(&1).unwrap(), &b"1234".to_vec());
+
+        {
+            let mut a = cache.get_mut(&1).unwrap();
+            *a = b"123456".to_vec();
+        }
+
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn test_peek() {
+        let mut cache = LruCache::with_meter(2, 5, VecLen);
+        cache.insert(1, b"12".to_vec());
+        cache.insert(2, b"34".to_vec());
+
+        // peek() does not update the recency of `1`.
+        assert_eq!(cache.peek(&1).unwrap(), &b"12".to_vec());
+
+        // still evict `1`, because peek() does not update its recency
+        cache.insert(3, b"33".to_vec());
+        assert_eq!(cache.peek(&1), None);
+    }
+
+    #[test]
+    fn test_peek_mut() {
+        let mut cache = LruCache::with_meter(2, 5, VecLen);
+        cache.insert(1, b"12".to_vec());
+        cache.insert(2, b"34".to_vec());
+
+        {
+            let mut a = cache.peek_mut(&1).unwrap();
+            *a = b"56".to_vec();
+        }
+        // `1` is updated
+        assert_eq!(cache.peek(&1).unwrap(), &b"56".to_vec());
+
+        // still evict `1`, because peek() does not update its recency
+        cache.insert(3, b"33".to_vec());
+        assert_eq!(cache.peek(&1), None);
+    }
+
+    #[test]
+    fn test_peek_mut_evict() {
+        // When a value is updated via `peek_mut()` and given back to the cache,
+        // the cache should evict items according to the meter changes.
+
+        let mut cache = LruCache::with_meter(2, 5, VecLen);
+        cache.insert(1, b"12".to_vec());
+        cache.insert(2, b"34".to_vec());
+
+        assert_eq!(cache.len(), 2);
+
+        {
+            let mut a = cache.peek_mut(&1).unwrap();
+            *a = b"1234".to_vec();
+        }
+
+        assert_eq!(cache.len(), 1);
+        // Because peek does not update the recency, `1` is evicted
+        assert_eq!(cache.get(&1), None);
+        assert_eq!(cache.get(&2).unwrap(), &b"34".to_vec());
     }
 
     #[test]
@@ -691,6 +889,7 @@ mod tests {
         cache.insert(1, 10);
         cache.insert(2, 20);
         cache.clear();
+
         assert!(cache.get_mut(&1).is_none());
         assert!(cache.get_mut(&2).is_none());
         assert_eq!(format!("{:?}", cache), "{}");
