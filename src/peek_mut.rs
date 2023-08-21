@@ -10,6 +10,14 @@ use hashlink::linked_hash_map::RawOccupiedEntryMut;
 use crate::meter::Meter;
 use crate::LruCache;
 
+/// A wrapper that `deref` or `deref_mut` to a mutable reference to the value corresponding to a
+/// given key in a cache.
+///
+/// When this structure is dropped, the cache [`Meter`] will be updated by the new value and if the
+/// [`size()`] exceeds the [`capacity()`], the least recently used items will be evicted.
+///
+/// [`size()`]: crate::LruCache::size
+/// [`capacity()`]: crate::LruCache::capacity
 pub struct PeekMut<'a, K, V, S, M>
 where
     K: Eq + Hash,

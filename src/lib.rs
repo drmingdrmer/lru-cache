@@ -46,6 +46,7 @@ use std::fmt;
 use std::hash::BuildHasher;
 use std::hash::Hash;
 
+pub use hashbrown;
 use hashbrown::hash_map::DefaultHashBuilder;
 use hashlink::linked_hash_map;
 use hashlink::linked_hash_map::RawEntryMut;
