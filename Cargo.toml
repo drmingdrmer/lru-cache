@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "lru-cache"
+name = "lru-cache-map"
 rust-version = "1.65"
 version = "0.1.4"
 

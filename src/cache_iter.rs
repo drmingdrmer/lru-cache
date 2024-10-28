@@ -6,7 +6,7 @@ use hashlink::linked_hash_map;
 /// # Examples
 ///
 /// ```rust
-/// # use lru_cache::LruCache;
+/// # use lru_cache_map::LruCache;
 /// #
 /// let mut cache = LruCache::new(2);
 ///

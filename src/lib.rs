@@ -16,7 +16,7 @@
 //! # Examples
 //!
 //! ```rust
-//! # use lru_cache::LruCache;
+//! # use lru_cache_map::LruCache;
 //! #
 //! let mut cache = LruCache::new(2);
 //!
@@ -82,7 +82,7 @@ impl<K: Eq + Hash, V> LruCache<K, V> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// let mut cache: LruCache<i32, &str> = LruCache::new(10);
     /// ```
     pub fn new(max_items: usize) -> Self {
@@ -106,7 +106,7 @@ impl<K: Eq + Hash, V, M: Meter<K, V>> LruCache<K, V, DefaultHashBuilder, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::{LruCache, meter::Meter};
+    /// # use lru_cache_map::{LruCache, meter::Meter};
     /// # use std::borrow::Borrow;
     /// #
     /// /// Measure Vec items by their length
@@ -199,7 +199,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// #
     /// let mut cache = LruCache::new(2);
     /// cache.set_capacity(100);
@@ -242,7 +242,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// let mut cache: LruCache<i32, &str> = LruCache::new(2);
     /// assert_eq!(cache.capacity(), 2);
     /// ```
@@ -258,7 +258,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// #
     /// let mut cache = LruCache::new(2);
     /// cache.set_max_items(100);
@@ -295,7 +295,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// #
     /// let mut cache = LruCache::new(1);
     ///
@@ -316,7 +316,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// #
     /// let mut cache = LruCache::new(2);
     ///
@@ -348,7 +348,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// # use std::ops::DerefMut;
     /// #
     /// let mut cache = LruCache::new(2);
@@ -386,7 +386,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// #
     /// let mut cache = LruCache::new(2);
     ///
@@ -418,7 +418,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// # use std::ops::DerefMut;
     /// #
     /// let mut cache = LruCache::new(2);
@@ -457,7 +457,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// #
     /// let mut cache = LruCache::new(2);
     ///
@@ -498,7 +498,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// #
     /// let mut cache = LruCache::new(2);
     ///
@@ -525,7 +525,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// #
     /// let mut cache = LruCache::new(2);
     ///
@@ -558,7 +558,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// #
     /// let mut cache = LruCache::new(2);
     ///
@@ -583,7 +583,7 @@ impl<K: Eq + Hash, V, S: BuildHasher, M: Meter<K, V>> LruCache<K, V, S, M> {
     /// # Examples
     ///
     /// ```rust
-    /// # use lru_cache::LruCache;
+    /// # use lru_cache_map::LruCache;
     /// #
     /// let mut cache = LruCache::new(2);
     ///
