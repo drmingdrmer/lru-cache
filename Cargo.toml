@@ -13,7 +13,7 @@ repository = "https://github.com/drmingdrmer/lru-cache/"
 
 [dependencies]
 hashbrown = { version = "0.14.0"}
-hashlink = { git = "https://github.com/drmingdrmer/hashlink", branch = "master" }
+hashlink = { version = "0.8.4" }
 
 [dev-dependencies]
 
